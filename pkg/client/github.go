@@ -36,3 +36,12 @@ func (g *Github) Events() []*gh.Event {
 	}
 	return result
 }
+
+func (g *Github) Comment(id int) *gh.IssueComment {
+	result, _, err := g.Client.Issues.GetComment("openshift", "origin", id)
+	if err != nil {
+		log.Printf("ERROR: unable to get github comment: %v", err)
+		return nil
+	}
+	return result
+}

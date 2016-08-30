@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,9 +47,14 @@ func GetAllPulls() []*PullRequest {
 	defer client.Close()
 	result := []*PullRequest{}
 	keys, _ := client.Keys("*").Result()
-	sort.Sort(sort.Reverse(sort.StringSlice(keys)))
+	intKeys := []int{}
 	for _, k := range keys {
-		rawPR, _ := client.Get(k).Result()
+		i, _ := strconv.ParseInt(k, 10, 64)
+		intKeys = append(intKeys, int(i))
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(intKeys)))
+	for _, k := range intKeys {
+		rawPR, _ := client.Get(fmt.Sprintf("%d", k)).Result()
 		pr := &PullRequest{}
 		pr.FromJSON(rawPR)
 		result = append(result, pr)

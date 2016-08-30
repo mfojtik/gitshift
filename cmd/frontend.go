@@ -39,6 +39,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, `
 	<html>
 	<head>
+	<meta http-equiv="refresh" content="30">
 	<!-- Latest compiled and minified CSS -->
 	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
 	<!-- Optional theme -->
@@ -52,25 +53,33 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	for _, p := range pulls {
 		mergeStatus := ""
 		jenkinsCss := ""
+		testStatus := ""
 		if p.IsFailure() {
 			jenkinsCss = ` class="danger"`
 		}
-		if p.Merge {
-			mergeStatus = fmt.Sprintf("MERGE #%d", p.Position)
-			jenkinsCss = ` class="success"`
+		if len(p.MergeStatus) > 0 {
+			if p.IsMergeFailure() {
+				mergeStatus = fmt.Sprintf("<a href=%q><code>MERGE %s</code></a>", p.MergeURL, p.MergeStatus)
+			} else {
+				mergeStatus = fmt.Sprintf("<a href=%q><code>MERGE %s #%d</code></a>", p.MergeURL, p.MergeStatus, p.Position)
+				jenkinsCss = ` class="success"`
+			}
+		}
+		if len(p.JenkinsTestStatus) > 0 {
+			testStatus = "<a href=" + p.JenkinsTestURL + "><code>" + p.JenkinsTestStatus + "</code></a>"
 		}
 		fmt.Fprintf(w, `<tr%s>
 		<td><a href="https://github.com/openshift/origin/pull/%d">#%d</a></td>
 		<td>%s</td>
 		<td>%s</td>
-		<td><span class="label label-default">%s</span></td>
-		<td title="last updated %s"><span class="badge">%s</span></td>
+		<td><b>%s</b></td>
+		<td title="last updated %s"><small>%s</small></td>
 		<td>by %s</td>
 		</tr>`,
 			jenkinsCss,
 			p.Number, p.Number,
 			p.Title,
-			p.JenkinsTestStatus,
+			testStatus,
 			mergeStatus,
 			p.UpdatedAt,
 			humanize.Time(p.CreatedAt),

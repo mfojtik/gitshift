@@ -49,6 +49,10 @@ func ProcessEvents() error {
 }
 
 func ProcessOpenShiftBotComment(issue *gh.Issue, comment *gh.IssueComment) error {
+	// Ignore "Evaluated for origin merge up to 5d4ca73" comments
+	if strings.Contains(*comment.Body, "Evaluated for") {
+		return nil
+	}
 	result := new(api.PullRequest)
 	currentVersion := api.GetPull(*issue.Number)
 
@@ -61,19 +65,31 @@ func ProcessOpenShiftBotComment(issue *gh.Issue, comment *gh.IssueComment) error
 		result.CreatedAt = *comment.UpdatedAt
 	}
 
+	if status := parseMergeStatus(*comment.Body); len(status) > 0 {
+		result.MergeStatus = status
+		result.MergeURL = parseJenkinsURL(*comment.Body)
+		result.MergeCommentID = *comment.ID
+	}
+
 	if status := parseJenkinsStatus(*comment.Body); len(status) > 0 {
 		result.JenkinsTestStatus = status
+		result.JenkinsTestURL = parseJenkinsURL(*comment.Body)
+		result.JenkinsTestCommentID = *comment.ID
 	}
 
 	if position := parseMergeQueuePosition(*comment.Body); position > 0 {
 		result.Position = position
 	}
 
-	if isMerge := parseMergeStatus(*comment.Body); isMerge != nil {
-		result.Merge = true
+	log.Printf("PR#%d got: %#+v", result.Number, result)
+
+	if !result.IsLatest(currentVersion) {
+		log.Printf("version: %#+v is older than version we have: %#+v (SKIP)", result, currentVersion)
+		return nil
 	}
 
-	if !result.IsLatest(currentVersion) || result.Equal(currentVersion) {
+	if result.Equal(currentVersion) {
+		log.Printf("version: %#+v is equal to version we have: %#+v (SKIP)", result, currentVersion)
 		return nil
 	}
 
@@ -95,12 +111,22 @@ func parseJenkinsStatus(msg string) string {
 	return parseBotStatus(msg)
 }
 
-func parseMergeStatus(msg string) *bool {
-	result := true
-	if !strings.Contains(msg, "openshift-jenkins/merge") {
-		return nil
+func parseJenkinsURL(msg string) string {
+	if !strings.Contains(msg, "continuous-integration/openshift-jenkins") {
+		return ""
 	}
-	return &result
+	parts := strings.Split(msg, "(")
+	if len(parts) != 2 {
+		return ""
+	}
+	return strings.TrimSuffix(parts[1], ")")
+}
+
+func parseMergeStatus(msg string) string {
+	if !strings.Contains(msg, "openshift-jenkins/merge") {
+		return ""
+	}
+	return parseBotStatus(msg)
 }
 
 func parseMergeQueuePosition(msg string) int {
@@ -111,6 +137,6 @@ func parseMergeQueuePosition(msg string) int {
 	if len(parts) < 3 {
 		return 0
 	}
-	pos, _ := strconv.ParseInt(parts[2], 10, 64)
+	pos, _ := strconv.ParseInt(strings.TrimSpace(parts[2]), 10, 64)
 	return int(pos)
 }
