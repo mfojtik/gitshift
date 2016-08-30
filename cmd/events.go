@@ -75,6 +75,10 @@ var streamCommentsCmd = &cobra.Command{
 		log.Printf("Streaming Github comments ...")
 		for {
 			for _, pull := range api.GetAllPulls() {
+				// Skip merged PR's
+				if pull.MergeStatus == "SUCCESS" {
+					continue
+				}
 				comments := []string{}
 				if pull.JenkinsTestCommentID > 0 {
 					comments = append(comments, fmt.Sprintf("%d", pull.JenkinsTestCommentID))
