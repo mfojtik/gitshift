@@ -1,28 +1,13 @@
 package client
 
 import (
-	"fmt"
 	"log"
-	"os"
 
 	gh "github.com/google/go-github/github"
-	"golang.org/x/oauth2"
 )
 
 type Github struct {
 	*gh.Client
-}
-
-func NewGithub() (*Github, error) {
-	token := os.Getenv("GITHUB_API_KEY")
-	if len(token) == 0 {
-		return nil, fmt.Errorf("you must set GITHUB_API_KEY")
-	}
-	return &Github{
-		gh.NewClient(
-			oauth2.NewClient(oauth2.NoContext, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})),
-		),
-	}, nil
 }
 
 func (g *Github) Events() []*gh.Event {

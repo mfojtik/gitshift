@@ -4,7 +4,6 @@ import (
 	"time"
 
 	workq "github.com/iamduo/go-workq"
-	"github.com/mfojtik/gitshift/pkg/api"
 	uuid "github.com/satori/go.uuid"
 )
 
@@ -14,17 +13,16 @@ type Job struct {
 }
 
 func AddJob(name string, payload []byte, ttr, ttl time.Duration) (*Job, error) {
-	config := api.EnvToConfig()
-	client, err := workq.Connect(config["WORKQ_SERVER_SERVICE_HOST"] + ":" + config["WORKQ_SERVER_SERVICE_PORT"])
+	jobClient, _, _, err := GetAll()
 	if err != nil {
 		return nil, err
 	}
-	defer client.Close()
+	defer jobClient.Close()
 	job := &Job{
 		UUID: uuid.NewV4().String(),
 		Name: name,
 	}
-	if err := client.Add(&workq.BgJob{
+	if err := jobClient.Add(&workq.BgJob{
 		ID:          job.UUID,
 		Name:        job.Name,
 		TTR:         int(ttr / 1000000),

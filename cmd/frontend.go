@@ -19,7 +19,7 @@ import (
 	"net/http"
 
 	humanize "github.com/dustin/go-humanize"
-	"github.com/mfojtik/gitshift/pkg/api"
+	"github.com/mfojtik/gitshift/pkg/client"
 	"github.com/spf13/cobra"
 )
 
@@ -35,7 +35,7 @@ var frontendCmd = &cobra.Command{
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	pulls := api.GetAllPulls()
+	pulls := client.GetAllPulls()
 	fmt.Fprintf(w, `
 	<html>
 	<head>
@@ -49,6 +49,14 @@ func handler(w http.ResponseWriter, r *http.Request) {
   </head>
 	<body>
 	<table class="table table-hover table-striped">
+	<tr>
+		<th>Pull Number</th>
+		<th>Pull Title</th>
+		<th>Test Status</th>
+		<th>Merge Status</th>
+		<th>Last Update</th>
+		<th>Github User</th>
+	</tr>
 	`)
 	for _, p := range pulls {
 		mergeStatus := ""
@@ -59,14 +67,21 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(p.MergeStatus) > 0 {
 			if p.IsMergeFailure() {
-				mergeStatus = fmt.Sprintf("<a href=%q><code>MERGE %s</code></a>", p.MergeURL, p.MergeStatus)
+				mergeStatus = fmt.Sprintf("<a href=%q><code>MERGE FAILED</code></a>", p.MergeURL, p.MergeStatus)
+				jenkinsCss = ` class="danger"`
+			} else if p.IsMerged() {
+				mergeStatus = fmt.Sprintf("MERGED")
+				jenkinsCss = ` class="info"`
 			} else {
 				mergeStatus = fmt.Sprintf("<a href=%q><code>MERGE %s #%d</code></a>", p.MergeURL, p.MergeStatus, p.Position)
-				jenkinsCss = ` class="success"`
+				jenkinsCss = ` class="active"`
 			}
 		}
 		if len(p.JenkinsTestStatus) > 0 {
 			testStatus = "<a href=" + p.JenkinsTestURL + "><code>" + p.JenkinsTestStatus + "</code></a>"
+			if p.IsSuccess() {
+				jenkinsCss = ` class="success"`
+			}
 		}
 		fmt.Fprintf(w, `<tr%s>
 		<td><a href="https://github.com/openshift/origin/pull/%d">#%d</a></td>

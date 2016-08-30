@@ -2,27 +2,21 @@ package processor
 
 import (
 	"log"
-	"strconv"
 	"strings"
 
-	workq "github.com/iamduo/go-workq"
+	gh "github.com/google/go-github/github"
 	"github.com/mfojtik/gitshift/pkg/api"
-	apiclient "github.com/mfojtik/gitshift/pkg/client"
+	"github.com/mfojtik/gitshift/pkg/client"
 )
 
 func ProcessComments() error {
-	config := api.EnvToConfig()
-	client, err := workq.Connect(config["WORKQ_SERVER_SERVICE_HOST"] + ":" + config["WORKQ_SERVER_SERVICE_PORT"])
+	workq, github, _, err := client.GetAll()
 	if err != nil {
 		return err
 	}
-	github, err := apiclient.NewGithub()
-	if err != nil {
-		return err
-	}
-	defer client.Close()
+	defer workq.Close()
 	for {
-		job, err := client.Lease([]string{"process-comment"}, 60000)
+		job, err := workq.Lease([]string{"process-comment"}, 60000)
 		if err != nil {
 			log.Printf("ERROR:  leasing error, will retry %v", err)
 			continue
@@ -32,64 +26,105 @@ func ProcessComments() error {
 			log.Printf("ERROR: unknown payload: %q", string(job.Payload))
 			continue
 		}
-		commentStringID, prStringNumber := parts[1], parts[0]
-		prNumber, _ := strconv.ParseInt(prStringNumber, 10, 64)
-		commentID, _ := strconv.ParseInt(commentStringID, 10, 64)
 
-		log.Printf("processing %q job %d for %d", "process-comment", job.ID, prNumber, commentID)
-
-		currentPull := api.GetPull(int(prNumber))
-		if currentPull == nil {
-			log.Printf("pull %d is not cached (SKIP)", prNumber)
-			client.Complete(job.ID, []byte(""))
+		// Get the current version of pull request from redis or complete this job
+		// if there is no version stored.
+		current := client.GetPull(api.StringToInt(parts[0]))
+		if current == nil {
+			log.Printf("nothing to update for #%s because it is not cached", parts[0])
+			workq.Complete(job.ID, []byte(""))
 			continue
 		}
 
-		comment := github.Comment(int(commentID))
+		// Get the fresh comment body from Github.
+		// TODO: This cost Github API request and need to be limited
+		comment := github.Comment(api.StringToInt(parts[1]))
 		if comment == nil {
-			if currentPull.MergeCommentID == int(commentID) {
-				currentPull.MergeCommentID = 0
-			}
-			if currentPull.JenkinsTestCommentID == int(commentID) {
-				currentPull.JenkinsTestCommentID = 0
-			}
-			// This can race
-			if err := api.StorePullRequest(currentPull); err != nil {
-				client.Fail(job.ID, []byte(""))
-				continue
-			}
-			log.Printf("pull comment %d is not found (SKIP)(REMOVED)", commentID)
-			client.Complete(job.ID, []byte(""))
+			workq.Complete(job.ID, []byte(""))
 			continue
 		}
 
-		result := *currentPull
+		result := *current
+		updateFromComment(comment, &result)
 
-		if status := parseMergeStatus(*comment.Body); len(status) > 0 {
-			result.MergeStatus = status
-			result.MergeURL = parseJenkinsURL(*comment.Body)
-			result.MergeCommentID = *comment.ID
-		}
-
-		if status := parseJenkinsStatus(*comment.Body); len(status) > 0 {
-			result.JenkinsTestStatus = status
-			result.JenkinsTestURL = parseJenkinsURL(*comment.Body)
-			result.JenkinsTestCommentID = *comment.ID
-		}
-
-		if position := parseMergeQueuePosition(*comment.Body); position > 0 {
-			result.Position = position
-		}
-
-		if currentPull.Equal(&result) {
-			log.Printf("version: %#+v is equal to version we have: %#+v (SKIP)", currentPull, &result)
+		if current.Equal(&result) {
+			log.Printf("skipping update (%d): %s == %s", current.Number, current, &result)
 			continue
 		}
-		if err := api.StorePullRequest(&result); err != nil {
-			client.Fail(job.ID, []byte(""))
+
+		if err := client.StorePullRequest(&result); err != nil {
+			workq.Fail(job.ID, []byte(""))
+			log.Printf("ERROR: failed to store pull request: %v (will retry)", err)
 			continue
 		}
-		log.Printf("PR#%d updated: %+v", result.Number, result)
-		client.Complete(job.ID, []byte(""))
+
+		log.Printf("updated: %s", result.Number, result)
+		workq.Complete(job.ID, []byte(""))
+	}
+}
+
+func updateFromComment(comment *gh.IssueComment, pr *api.PullRequest) {
+	if comment.UpdatedAt != nil {
+		pr.CreatedAt = *comment.UpdatedAt
+	}
+
+	if status := parseMergeStatus(*comment.Body); len(status) > 0 {
+		pr.MergeStatus = status
+		pr.MergeURL = parseJenkinsURL(*comment.Body)
+		pr.MergeCommentID = *comment.ID
+	}
+
+	if status := parseJenkinsStatus(*comment.Body); len(status) > 0 {
+		pr.JenkinsTestStatus = status
+		pr.JenkinsTestURL = parseJenkinsURL(*comment.Body)
+		pr.JenkinsTestCommentID = *comment.ID
+	}
+
+	if position := parseMergeQueuePosition(*comment.Body); position > 0 {
+		pr.Position = position
+	}
+}
+
+func parseBotStatus(status string) string {
+	parts := strings.Split(status, " ")
+	if len(parts) < 2 {
+		return ""
+	}
+	return strings.ToUpper(strings.TrimSuffix(strings.TrimSpace(parts[1]), ":"))
+}
+
+func parseJenkinsStatus(commentBody string) string {
+	if !strings.Contains(commentBody, "openshift-jenkins/test") {
+		return ""
+	}
+	return parseBotStatus(commentBody)
+}
+
+func parseJenkinsURL(commentBody string) string {
+	if !strings.Contains(commentBody, "continuous-integration/openshift-jenkins") {
+		return ""
+	}
+	if parts := strings.Split(commentBody, "("); len(parts) != 2 {
+		return ""
+	} else {
+		return strings.TrimSuffix(parts[1], ")")
+	}
+}
+
+func parseMergeStatus(commentBody string) string {
+	if !strings.Contains(commentBody, "openshift-jenkins/merge") {
+		return ""
+	}
+	return parseBotStatus(commentBody)
+}
+
+func parseMergeQueuePosition(commentBody string) int {
+	if !strings.Contains(commentBody, "You are in the build queue at position:") {
+		return 0
+	}
+	if parts := strings.Split(commentBody, ":"); len(parts) < 3 {
+		return 0
+	} else {
+		return api.StringToInt(parts[2])
 	}
 }

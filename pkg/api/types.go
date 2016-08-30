@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"time"
@@ -27,6 +28,10 @@ type PullRequest struct {
 	UpdatedAt            *time.Time `json:"updatedAt"`
 }
 
+func (p *PullRequest) String() string {
+	return p.ToJSON()
+}
+
 func (p *PullRequest) ToJSON() string {
 	result, _ := json.Marshal(p)
 	return string(result)
@@ -41,8 +46,27 @@ func (p *PullRequest) IsFailure() bool {
 	return strings.Contains(p.JenkinsTestStatus, "FAILURE") || p.IsMergeFailure()
 }
 
+func (p *PullRequest) IsSuccess() bool {
+	return strings.Contains(p.JenkinsTestStatus, "SUCCESS") && !p.IsMergeFailure()
+}
+
+func (p *PullRequest) IsMerged() bool {
+	return strings.Contains(p.MergeStatus, "SUCCESS")
+}
+
 func (p *PullRequest) IsMergeFailure() bool {
 	return strings.Contains(p.MergeStatus, "FAILURE")
+}
+
+func (p *PullRequest) CommentsToPayload() [][]byte {
+	payload := [][]byte{}
+	if p.JenkinsTestCommentID > 0 {
+		payload = append(payload, []byte(fmt.Sprintf("%d:%d", p.Number, p.JenkinsTestCommentID)))
+	}
+	if p.MergeCommentID > 0 {
+		payload = append(payload, []byte(fmt.Sprintf("%d:%d", p.Number, p.MergeCommentID)))
+	}
+	return payload
 }
 
 func (p *PullRequest) Equal(pull *PullRequest) bool {

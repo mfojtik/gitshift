@@ -1,15 +1,10 @@
 package api
 
 import (
-	"fmt"
 	"log"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
-	"time"
-
-	redis "gopkg.in/redis.v4"
 )
 
 func EnvToConfig() map[string]string {
@@ -24,57 +19,11 @@ func EnvToConfig() map[string]string {
 	return result
 }
 
-func StorePullRequest(pr *PullRequest) error {
-	config := EnvToConfig()
-	client := redis.NewClient(&redis.Options{
-		Addr:     config["REDIS_SERVICE_HOST"] + ":" + config["REDIS_SERVICE_PORT"],
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-	defer client.Close()
-	now := time.Now()
-	pr.UpdatedAt = &now
-	return client.Set(fmt.Sprintf("%d", pr.Number), pr.ToJSON(), 0).Err()
-}
-
-func GetAllPulls() []*PullRequest {
-	config := EnvToConfig()
-	client := redis.NewClient(&redis.Options{
-		Addr:     config["REDIS_SERVICE_HOST"] + ":" + config["REDIS_SERVICE_PORT"],
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-	defer client.Close()
-	result := []*PullRequest{}
-	keys, _ := client.Keys("*").Result()
-	intKeys := []int{}
-	for _, k := range keys {
-		i, _ := strconv.ParseInt(k, 10, 64)
-		intKeys = append(intKeys, int(i))
-	}
-	sort.Sort(sort.Reverse(sort.IntSlice(intKeys)))
-	for _, k := range intKeys {
-		rawPR, _ := client.Get(fmt.Sprintf("%d", k)).Result()
-		pr := &PullRequest{}
-		pr.FromJSON(rawPR)
-		result = append(result, pr)
-	}
-	return result
-}
-
-func GetPull(number int) *PullRequest {
-	config := EnvToConfig()
-	client := redis.NewClient(&redis.Options{
-		Addr:     config["REDIS_SERVICE_HOST"] + ":" + config["REDIS_SERVICE_PORT"],
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-	defer client.Close()
-	data, err := client.Get(fmt.Sprintf("%d", number)).Result()
+func StringToInt(in string) int {
+	num, err := strconv.ParseInt(strings.TrimSpace(in), 10, 64)
 	if err != nil {
-		log.Printf("ERROR: Unable to get pull request %d: %v", number, err)
-		return nil
+		log.Printf("failed to convert %q to integer", in)
+		return 0
 	}
-	result := &PullRequest{}
-	return result.FromJSON(data)
+	return int(num)
 }
