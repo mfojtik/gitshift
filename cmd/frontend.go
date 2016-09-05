@@ -65,9 +65,12 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		if p.IsFailure() {
 			jenkinsCss = ` class="danger"`
 		}
+		if p.Approved {
+			mergeStatus = "<code>LGTM</code>"
+		}
 		if len(p.MergeStatus) > 0 {
 			if p.IsMergeFailure() {
-				mergeStatus = fmt.Sprintf("<a href=%q><code>MERGE FAILED</code></a>", p.MergeURL, p.MergeStatus)
+				mergeStatus = fmt.Sprintf("<a href=%q><code>MERGE FAILED</code></a>", p.MergeURL)
 				jenkinsCss = ` class="danger"`
 			} else if p.IsMerged() {
 				mergeStatus = fmt.Sprintf("MERGED")
@@ -83,9 +86,13 @@ func handler(w http.ResponseWriter, r *http.Request) {
 				jenkinsCss = ` class="success"`
 			}
 		}
+		milestone := ""
+		if len(p.Milestone) > 0 {
+			milestone = `<span class="badge">` + p.Milestone + `</span> `
+		}
 		fmt.Fprintf(w, `<tr%s>
 		<td><a href="https://github.com/openshift/origin/pull/%d">#%d</a></td>
-		<td>%s</td>
+		<td>%s%s</td>
 		<td>%s</td>
 		<td><b>%s</b></td>
 		<td title="last updated %s"><small>%s</small></td>
@@ -93,6 +100,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		</tr>`,
 			jenkinsCss,
 			p.Number, p.Number,
+			milestone,
 			p.Title,
 			testStatus,
 			mergeStatus,

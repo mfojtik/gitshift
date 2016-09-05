@@ -26,6 +26,8 @@ type PullRequest struct {
 	MergeCommentID       int        `json:"mergeCommentID"`
 	CreatedAt            time.Time  `json:"createdAt"`
 	UpdatedAt            *time.Time `json:"updatedAt"`
+	Approved             bool       `json:"approved"`
+	Milestone            string     `json:"milestone"`
 }
 
 func (p *PullRequest) String() string {

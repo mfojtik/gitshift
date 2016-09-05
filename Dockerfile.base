@@ -1,3 +1,3 @@
 FROM docker.io/mfojtik/base-arm:latest
-ADD ./gs /gs
+ADD ./bin/gs /gs
 ENTRYPOINT ["/gs"]

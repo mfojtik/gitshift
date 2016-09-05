@@ -61,3 +61,13 @@ func GetPull(number int) *api.PullRequest {
 	result := &api.PullRequest{}
 	return result.FromJSON(data)
 }
+
+func DeletePulls(numbers ...string) error {
+	_, _, redis, err := GetAll()
+	if err != nil {
+		log.Printf("ERROR: unable to connect to redis: %v", err)
+		return nil
+	}
+	defer redis.Close()
+	return redis.Del(numbers...).Err()
+}
